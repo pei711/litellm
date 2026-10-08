@@ -1,4 +1,9 @@
-use crate::cache::{CacheCall, Cached, PythonCache, Selection};
+use std::collections::BTreeSet;
+
+use crate::{
+    cache::{CacheCall, Cached, PythonCache, Selection},
+    routes::parameters::{defaulted_keys, provider_parameters},
+};
 use litellm_host_python::{PythonHostCalls, PythonOwned};
 
 use bytes::Bytes;
@@ -20,36 +25,11 @@ use serde_json::{Map, Value};
 
 use crate::{
     errors::{RustUpstreamError, route_error_to_pyerr},
-    marshal::{optional_timeout, project_optional_fields, public_response, python_timeout_seconds},
+    marshal::{optional_timeout, public_response, python_timeout_seconds},
 };
 
 const ROUTE_HOST_MODULE: &str = "litellm.rust_bridge.messages.route_host";
 const REQUEST_ERROR_MARKER: &str = "messages_request_error";
-
-const BODY_FIELDS: [&str; 22] = [
-    "max_tokens",
-    "metadata",
-    "stop_sequences",
-    "stream",
-    "system",
-    "temperature",
-    "thinking",
-    "tool_choice",
-    "tools",
-    "top_k",
-    "inference_geo",
-    "top_p",
-    "mcp_servers",
-    "context_management",
-    "compaction",
-    "container",
-    "output_format",
-    "speed",
-    "output_config",
-    "cache_control",
-    "reasoning_effort",
-    "safeguards",
-];
 
 fn merge_headers(
     forwarded: Option<Map<String, Value>>,
@@ -89,16 +69,22 @@ fn native_error(py: Python<'_>, error: Error) -> PyResult<PyErr> {
 /// The Python side of the Messages route: projects the prepared arguments and builds the
 /// public response, chunks and exceptions.
 pub(super) struct MessagesPythonHost {
-    request: Py<PyAny>,
+    request: Py<PyDict>,
+    defaulted: BTreeSet<String>,
     cache: PythonCache,
 }
 
 impl MessagesPythonHost {
-    pub(super) fn new(request: Py<PyAny>, asynchronous: bool) -> Self {
-        Self {
-            request,
+    pub(super) fn new(
+        request: Bound<'_, PyDict>,
+        asynchronous: bool,
+        kwargs: &Bound<'_, PyDict>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            defaulted: defaulted_keys(&request, kwargs)?,
+            request: request.unbind(),
             cache: PythonCache::new(asynchronous),
-        }
+        })
     }
 
     fn projection(
@@ -108,7 +94,7 @@ impl MessagesPythonHost {
     ) -> PyResult<Result<MessagesCall, Error>> {
         let request = self.request.bind(py);
         let argument = |name: &str| -> PyResult<Option<Bound<'_, PyAny>>> {
-            Ok(lookup(arguments, request, name)?.filter(|value| !value.is_none()))
+            Ok(lookup(arguments, request.as_any(), name)?.filter(|value| !value.is_none()))
         };
         let string = |name: &str| -> PyResult<Option<String>> {
             argument(name)?.map(|value| value.extract()).transpose()
@@ -116,7 +102,14 @@ impl MessagesPythonHost {
         let model = string("model")?.ok_or_else(|| PyValueError::new_err("model is required"))?;
         let messages =
             argument("messages")?.ok_or_else(|| PyValueError::new_err("messages is required"))?;
-        let fields = project_optional_fields(BODY_FIELDS, argument)?;
+        let fields = provider_parameters(
+            py,
+            arguments,
+            request,
+            &self.defaulted,
+            &["messages"],
+            &["metadata"],
+        )?;
         let body = [
             ("model".to_string(), Value::String(model.clone())),
             ("messages".to_string(), from_py(&messages)?),
@@ -153,7 +146,7 @@ impl MessagesPythonHost {
     ) -> PyResult<Option<Map<String, Value>>> {
         let request = self.request.bind(py);
         let mapping = |name: &str| -> PyResult<Option<Map<String, Value>>> {
-            lookup(arguments, request, name)?
+            lookup(arguments, request.as_any(), name)?
                 .filter(|value| !value.is_none())
                 .map(|value| from_py(&value))
                 .transpose()
@@ -169,10 +162,14 @@ impl MessagesPythonHost {
         py: Python<'_>,
         arguments: &Bound<'_, PyDict>,
     ) -> PyResult<Option<ProviderSpecificHeaders>> {
-        lookup(arguments, self.request.bind(py), "provider_specific_header")?
-            .filter(|value| !value.is_none())
-            .map(|value| from_py(&value))
-            .transpose()
+        lookup(
+            arguments,
+            self.request.bind(py).as_any(),
+            "provider_specific_header",
+        )?
+        .filter(|value| !value.is_none())
+        .map(|value| from_py(&value))
+        .transpose()
     }
 
     fn shaping(
@@ -199,6 +196,7 @@ impl MessagesPythonHost {
     fn provider(&self, py: Python<'_>) -> String {
         self.request
             .bind(py)
+            .as_any()
             .get_item("custom_llm_provider")
             .and_then(|value| value.extract::<Option<String>>())
             .ok()

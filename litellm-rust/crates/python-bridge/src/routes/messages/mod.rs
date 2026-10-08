@@ -9,7 +9,7 @@ use pyo3::{
 
 fn run_messages(
     py: Python<'_>,
-    request: Bound<'_, PyAny>,
+    request: Bound<'_, PyDict>,
     args: Bound<'_, PyTuple>,
     kwargs: Bound<'_, PyDict>,
     asynchronous: bool,
@@ -17,7 +17,7 @@ fn run_messages(
     let (arguments, hooks) = crate::routes::call_hooks(
         py,
         LoggingOperation::Messages,
-        &request,
+        request.as_any(),
         &args,
         &kwargs,
         asynchronous,
@@ -57,7 +57,7 @@ fn run_messages(
                 },
             ))
         },
-        MessagesPythonHost::new(request.unbind(), asynchronous),
+        MessagesPythonHost::new(request, asynchronous, &kwargs)?,
         hooks,
         asynchronous,
     )
@@ -66,11 +66,11 @@ fn run_messages(
 #[pyfunction]
 pub(crate) fn messages(py: Python<'_>, call: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let call = super::NativeCall::extract(&call)?;
-    run_messages(py, call.bound.into_any(), call.args, call.kwargs, false)
+    run_messages(py, call.bound, call.args, call.kwargs, false)
 }
 
 #[pyfunction]
 pub(crate) fn amessages(py: Python<'_>, call: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let call = super::NativeCall::extract(&call)?;
-    run_messages(py, call.bound.into_any(), call.args, call.kwargs, true)
+    run_messages(py, call.bound, call.args, call.kwargs, true)
 }
