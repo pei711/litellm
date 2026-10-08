@@ -100,6 +100,36 @@ def test_an_openai_response_reaches_the_caller_unchanged() -> None:
     assert ir_to_openai_response(parsed, ir, "requested").model_dump(mode="json") == _OPENAI_RESPONSE
 
 
+def test_parse_response_accepts_answers_that_omit_name() -> None:
+    ir: Final = _openai_ir(_OPENAI_REQUEST)
+    payload: Final = {
+        **_OPENAI_RESPONSE,
+        "answers": [
+            {"type": "predicate", "probability": 0.95},
+            {
+                "type": "choice",
+                "choice": True,
+                "probabilities": [{"value": True, "probability": 0.9}, {"value": "escalate", "probability": 0.1}],
+                "confidence": 0.8,
+            },
+            {
+                "type": "score",
+                "score": 0.7,
+                "probabilities": [
+                    {"value": 0, "label": "minor", "probability": 0.3},
+                    {"value": 1, "label": "major", "probability": 0.7},
+                ],
+                "confidence": 0.6,
+            },
+            {"type": "refusal"},
+        ],
+    }
+
+    parsed: Final = OPENAI_DECISIONS_ENDPOINT.parse_response(payload, ir)
+
+    assert ir_to_openai_response(parsed, ir, "requested").model_dump(mode="json") == _OPENAI_RESPONSE
+
+
 def test_answers_openai_did_not_return_are_refusals() -> None:
     ir: Final = _openai_ir(_OPENAI_REQUEST)
     payload: Final = {**_OPENAI_RESPONSE, "answers": [_PREDICATE_ANSWER]}

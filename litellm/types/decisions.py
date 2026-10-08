@@ -235,7 +235,7 @@ class OpenAIDecisionRequestBody(LiteLLMPydanticObjectBase):
 
 class OpenAIPredicateAnswer(LiteLLMPydanticObjectBase):
     type: Literal["predicate"] = "predicate"
-    name: str | None
+    name: str | None = None
     probability: float
 
     model_config = ConfigDict(frozen=True)
@@ -250,7 +250,7 @@ class OpenAIChoiceProbability(LiteLLMPydanticObjectBase):
 
 class OpenAIChoiceAnswer(LiteLLMPydanticObjectBase):
     type: Literal["choice"] = "choice"
-    name: str | None
+    name: str | None = None
     choice: str | bool
     probabilities: tuple[OpenAIChoiceProbability, ...]
     confidence: float
@@ -268,7 +268,7 @@ class OpenAIScoreProbability(LiteLLMPydanticObjectBase):
 
 class OpenAIScoreAnswer(LiteLLMPydanticObjectBase):
     type: Literal["score"] = "score"
-    name: str | None
+    name: str | None = None
     score: float
     probabilities: tuple[OpenAIScoreProbability, ...]
     confidence: float
@@ -278,7 +278,7 @@ class OpenAIScoreAnswer(LiteLLMPydanticObjectBase):
 
 class OpenAIRefusalAnswer(LiteLLMPydanticObjectBase):
     type: Literal["refusal"] = "refusal"
-    name: str | None
+    name: str | None = None
 
     model_config = ConfigDict(frozen=True)
 
