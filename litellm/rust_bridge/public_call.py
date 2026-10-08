@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, TypeAlias, TypeVar, cast  # noqa: TID251  # narrows caller-owned containers
 
-
 Bind: TypeAlias = Callable[[tuple[object, ...], Mapping[str, object]], Mapping[str, object] | None]
 
 
@@ -30,10 +29,6 @@ def binder(python: Callable[..., object]) -> Bind:
 
 def optional_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
-
-
-def optional_bool(value: object) -> bool | None:
-    return value if isinstance(value, bool) else None
 
 
 def optional_mapping(value: object) -> Mapping[str, object] | None:
