@@ -32909,6 +32909,11 @@ export interface components {
              */
             by_route: components["schemas"]["GatewayRequestBreakdownEntry"][];
             /**
+             * By Status Code
+             * @default []
+             */
+            by_status_code: components["schemas"]["GatewayRequestStatusCodeEntry"][];
+            /**
              * Total Failed Requests
              * @default 0
              */
@@ -32950,6 +32955,16 @@ export interface components {
              * @default 0
              */
             successful_requests: number;
+        };
+        /** GatewayRequestStatusCodeEntry */
+        GatewayRequestStatusCodeEntry: {
+            /**
+             * Failed Requests
+             * @default 0
+             */
+            failed_requests: number;
+            /** Status Code */
+            status_code: number;
         };
         /** GenerateKeyRequest */
         GenerateKeyRequest: {
