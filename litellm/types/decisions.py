@@ -300,9 +300,9 @@ class OpenAIDecisionOutputTokensDetails(LiteLLMPydanticObjectBase):
 
 class OpenAIDecisionUsage(LiteLLMPydanticObjectBase):
     input_tokens: int
-    input_tokens_details: OpenAIDecisionInputTokensDetails = OpenAIDecisionInputTokensDetails()
+    input_tokens_details: OpenAIDecisionInputTokensDetails = Field(default_factory=OpenAIDecisionInputTokensDetails)
     output_tokens: int
-    output_tokens_details: OpenAIDecisionOutputTokensDetails = OpenAIDecisionOutputTokensDetails()
+    output_tokens_details: OpenAIDecisionOutputTokensDetails = Field(default_factory=OpenAIDecisionOutputTokensDetails)
     total_tokens: int
 
     model_config = ConfigDict(frozen=True)

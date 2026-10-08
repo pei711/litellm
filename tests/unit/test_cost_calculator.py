@@ -2795,6 +2795,52 @@ def test_custom_pricing_applies_cache_creation_input_cost_via_prompt_details():
     assert cost == pytest.approx(expected)
 
 
+def test_decisions_cache_tokens_are_not_billed_again_at_the_input_rate() -> None:
+    from litellm.types.decisions import DecisionsResponse, DecisionsUsage, OpenAIDecisionResponse, OpenAIDecisionUsage
+
+    input_tokens: Final = 367
+    output_tokens: Final = 3
+    cached_tokens: Final = 256
+    cache_write_tokens: Final = 64
+    rates: Final = {
+        "input_cost_per_token": 0.0000025,
+        "output_cost_per_token": 0.000015,
+        "cache_read_input_token_cost": 0.00000025,
+        "cache_creation_input_token_cost": 0.000003125,
+    }
+    expected: Final = (
+        (input_tokens - cached_tokens - cache_write_tokens) * rates["input_cost_per_token"]
+        + cached_tokens * rates["cache_read_input_token_cost"]
+        + cache_write_tokens * rates["cache_creation_input_token_cost"]
+        + output_tokens * rates["output_cost_per_token"]
+    )
+    systemone: Final = DecisionsResponse(
+        model="gpt-6-luna",
+        answers={},
+        usage=DecisionsUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_tokens=cached_tokens,
+            cache_write_tokens=cache_write_tokens,
+        ),
+    )
+    systemone._hidden_params = {"model": "openai/gpt-6-luna", "custom_llm_provider": "openai"}
+    openai: Final = OpenAIDecisionResponse(
+        model="gpt-6-luna",
+        answers=(),
+        usage=OpenAIDecisionUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+            input_tokens_details={"cached_tokens": cached_tokens, "cache_write_tokens": cache_write_tokens},
+        ),
+    )
+    openai._hidden_params = {"model": "openai/gpt-6-luna", "custom_llm_provider": "openai"}
+
+    assert completion_cost(completion_response=systemone, custom_cost_per_token=rates) == pytest.approx(expected)
+    assert completion_cost(completion_response=openai, custom_cost_per_token=rates) == pytest.approx(expected)
+
+
 def test_custom_pricing_applies_cache_creation_input_cost_via_cache_write_tokens_alias():
     """
     Some OpenAI-compatible providers (e.g. kimi-k2) emit cache-write tokens as

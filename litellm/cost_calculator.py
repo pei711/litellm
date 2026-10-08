@@ -1023,6 +1023,32 @@ def get_usage_object(
             else getattr(completion_response, "get", lambda x: None)("usage")
         ),
     )
+    decisions_usage: Final = (
+        usage_obj
+        if isinstance(usage_obj, (DecisionsUsage, OpenAIDecisionUsage))
+        else getattr(completion_response, "usage", None)
+    )
+    match decisions_usage:
+        case DecisionsUsage():
+            return Usage(
+                **_decisions_usage(
+                    input_tokens=decisions_usage.input_tokens,
+                    output_tokens=decisions_usage.output_tokens,
+                    cached_tokens=decisions_usage.cached_tokens,
+                    cache_write_tokens=decisions_usage.cache_write_tokens,
+                )
+            )
+        case OpenAIDecisionUsage():
+            return Usage(
+                **_decisions_usage(
+                    input_tokens=decisions_usage.input_tokens,
+                    output_tokens=decisions_usage.output_tokens,
+                    cached_tokens=decisions_usage.input_tokens_details.cached_tokens,
+                    cache_write_tokens=decisions_usage.input_tokens_details.cache_write_tokens,
+                )
+            )
+        case _:
+            pass
 
     if usage_obj is None:
         return None
@@ -1060,8 +1086,10 @@ def _decisions_usage(
     return {
         "prompt_tokens": input_tokens,
         "completion_tokens": output_tokens,
-        "cache_read_input_tokens": cached_tokens,
-        "cache_creation_input_tokens": cache_write_tokens,
+        "prompt_tokens_details": {
+            "cached_tokens": cached_tokens,
+            "cache_write_tokens": cache_write_tokens,
+        },
     }
 
 
