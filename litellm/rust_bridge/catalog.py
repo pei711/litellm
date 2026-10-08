@@ -3,6 +3,7 @@
 ``decide`` is the whole rollout policy: one branch per route, each naming the gap
 that keeps a call on Python. A required Rust route has no Python implementation.
 An optional one follows the global switch in ``configuration``.
+Failures from a selected native call are terminal; nothing replays on Python.
 """
 
 from __future__ import annotations

@@ -23,7 +23,7 @@ use crate::{
             streaming::StreamShape,
             transformation::{
                 BaseConfig, Headers, ProviderChatRequestData, ProviderChatResponseData,
-                Unsupported, ValidatedEnvironment, unsupported_message, unsupported_param,
+                ValidatedEnvironment, reject_stream, validate_message,
             },
         },
     },
@@ -239,8 +239,6 @@ impl BaseConfig for AmazonConverseConfig {
         let response: ConverseResponse = serde_json::from_value(body).map_err(|error| {
             Error::InvalidResponse(format!("invalid Converse response: {error}").into())
         })?;
-        // The route declines tool requests, so anything other than a text block
-        // is something this path never asked for. Decline; the host falls back.
         if response.message_content_is_non_text() {
             return Err(Error::Unsupported("non-text response content block"));
         }
@@ -341,41 +339,27 @@ impl BaseConfig for AmazonConverseConfig {
         CONFIG_PARAMS
     }
 
-    fn unsupported_reason(
+    fn validate_request(
         &self,
         messages: &[ChatMessage],
         optional_params: &Map<String, Value>,
-    ) -> Option<Unsupported> {
-        unsupported_param(
-            self.supported_openai_param_mappings(),
-            CONFIG_PARAMS,
-            optional_params,
-        )
-        .or_else(|| messages.iter().find_map(unsupported_message))
-        // Python's Converse translation drops blank text blocks instead of
-        // substituting the placeholder the shared conversation builder
-        // applies, so decline blank text rather than diverge.
-        .or_else(|| {
-            messages
-                .iter()
-                .any(has_blank_text)
-                .then_some(Unsupported("blank message text"))
-        })
-        // Converse has no assistant prefill: Python inserts a continue turn
-        // when a conversation opens or closes on an assistant message, and
-        // only under `litellm.modify_params`, which the core cannot see.
-        // Declining both ends also keeps the shared builder's final
-        // assistant right-strip (an Anthropic rule) unreachable here.
-        .or_else(|| {
-            let conversation = build_conversation(messages);
-            let ends_on_assistant = conversation
-                .turns
-                .last()
-                .is_some_and(|turn| turn.role == TurnRole::Assistant);
-            (!conversation.opens_on_user_turn() || ends_on_assistant).then_some(Unsupported(
+    ) -> Result<(), Error> {
+        reject_stream(optional_params)?;
+        messages.iter().try_for_each(validate_message)?;
+        if messages.iter().any(has_blank_text) {
+            return Err(Error::Unsupported("blank message text"));
+        }
+        let conversation = build_conversation(messages);
+        let ends_on_assistant = conversation
+            .turns
+            .last()
+            .is_some_and(|turn| turn.role == TurnRole::Assistant);
+        if !conversation.opens_on_user_turn() || ends_on_assistant {
+            return Err(Error::Unsupported(
                 "conversation does not run user turn to user turn",
-            ))
-        })
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -403,6 +387,19 @@ fn converse_body(conversation: &Conversation, optional_params: &Map<String, Valu
         .map(|text| json!({"text": text}))
         .collect();
 
+    let additional_fields: Map<String, Value> = optional_params
+        .iter()
+        .filter(|(name, _)| {
+            !CONFIG_PARAMS.contains(&name.as_str())
+                && name.as_str() != "stream"
+                && !SUPPORTED_PARAMS
+                    .iter()
+                    .any(|(_, field)| *field == name.as_str())
+        })
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let reports_reasoning_usage = additional_fields.contains_key("thinking");
+
     Value::Object(Map::from_iter(
         [
             (
@@ -412,7 +409,19 @@ fn converse_body(conversation: &Conversation, optional_params: &Map<String, Valu
             ("messages".to_string(), json!(messages)),
         ]
         .into_iter()
-        .chain((!system.is_empty()).then(|| ("system".to_string(), json!(system)))),
+        .chain((!system.is_empty()).then(|| ("system".to_string(), json!(system))))
+        .chain((!additional_fields.is_empty()).then(|| {
+            (
+                "additionalModelRequestFields".to_string(),
+                Value::Object(additional_fields),
+            )
+        }))
+        .chain(reports_reasoning_usage.then(|| {
+            (
+                "additionalModelResponseFieldPaths".to_string(),
+                json!(["/usage/output_tokens_details"]),
+            )
+        })),
     ))
 }
 

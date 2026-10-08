@@ -87,10 +87,10 @@ GIL handling to `litellm-host-python`.
   measured reason.
 - Provider dispatch belongs in the `litellm-inference-*` route crate (e.g.
   `litellm_inference_messages`), not in this PyO3 crate.
-- Python owns rollout state and fallback. Rust should return errors; Python
-  decides whether to raise or fall back. For a rust-only provider/route (no
-  Python reference), the Python side is a thin dispatch that calls Rust and
-  raises when the bridge is unavailable, with no fallback.
+- `litellm.rust_bridge.catalog` owns known gaps and selects Python before
+  native execution. Optional native execution also uses Python when the binding
+  is unavailable. Every native failure is terminal, including unsupported
+  requests. Rust-only routes raise when the bridge is unavailable.
   - Declare it with `NativeDispatch` (`litellm.rust_bridge.dispatch`) or
     `runtime.run_native`/`arun_native`, never a stand-in Python callable that
     raises, and have `catalog.decide` return `Rust(required=True)` for every
@@ -105,6 +105,12 @@ GIL handling to `litellm-host-python`.
   marshals inputs and calls Rust. Do not add per-route feature flags, and do
   not put provider dispatch in `litellm/main.py`; it lives in a thin dispatch
   class under `litellm/llms/<provider>/<route>/`.
+
+## Provider parameters
+
+Use `routes::parameters::provider_parameters` to collect JSON-compatible provider fields from bound and prepared arguments. LiteLLM controls are the union of `litellm_core_utils::params::is_control_param` (Rust-only names such as `base_url`, `callbacks`, `drop_params`) and Python's `is_litellm_owned_kwarg`; add a new control to whichever side already owns its siblings, never both. Route inputs are extracted separately. Unknown fields, including explicit nulls, remain in `CallArguments`; provider field lists must never filter them out. A `None` that came from a signature default is absence; a `None` the caller passed is an explicit null. Route-specific ownership resolves ambiguous names such as `metadata`
+
+Inference routes resolve `extra_body` at projection, before typed decoding and provider policy, so provider code never sees the original fields. OCR routes still compose overrides at the end through `compose_body`. Extensible payload objects retain unknown fields with `serde(flatten)`; use `Recognized<T>` only for provider values whose contract permits opaque passthrough. Provider/model adaptation belongs in provider crates, and known implementation gaps belong in the Python catalog
 
 ## Data Handling
 
